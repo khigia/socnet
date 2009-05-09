@@ -79,42 +79,65 @@ end
 
 
 module UbigraphBuilder = struct
+  type ubi_t = <
+    change_edge_style : int32 -> int32 -> int32;
+    change_vertex_style : int32 -> int32 -> int32;
+    clear : unit -> int32;
+    new_edge : int32 -> int32 -> int32;
+    new_edge_style : int32 -> int32;
+    new_edge_style_w_id : int32 -> int32 -> int32;
+    new_edge_w_id : int32 -> int32 -> int32 -> int32;
+    new_vertex : unit -> int32;
+    new_vertex_style : int32 -> int32;
+    new_vertex_style_w_id : int32 -> int32 -> int32;
+    new_vertex_w_id : int32 -> int32;
+    remove_edge : int32 -> int32;
+    remove_vertex : int32 -> int32;
+    set_edge_attribute : int32 -> string -> string -> int32;
+    set_edge_style_attribute : int32 -> string -> string -> int32;
+    set_vertex_attribute : int32 -> string -> string -> int32;
+    set_vertex_style_attribute : int32 -> string -> string -> int32
+  >
+  
+  type state = {
+    u: ubi_t;
+    gtou: (int,Int32.t) Hashtbl.t;
+  }
+  
+  let make_state url n =
+    let c = new Ubigraph.client url in
+    let u = c#ubigraph in
+    {
+      u = u;
+      gtou = Hashtbl.create n;
+    }
+
+
   module Make(B : Graph.Builder.INT) = struct
     module G = B.G
 
-    type st = <
-      change_edge_style : int32 -> int32 -> int32;
-      change_vertex_style : int32 -> int32 -> int32;
-      clear : unit -> int32;
-      new_edge : int32 -> int32 -> int32;
-      new_edge_style : int32 -> int32;
-      new_edge_style_w_id : int32 -> int32 -> int32;
-      new_edge_w_id : int32 -> int32 -> int32 -> int32;
-      new_vertex : unit -> int32;
-      new_vertex_style : int32 -> int32;
-      new_vertex_style_w_id : int32 -> int32 -> int32;
-      new_vertex_w_id : int32 -> int32;
-      remove_edge : int32 -> int32;
-      remove_vertex : int32 -> int32;
-      set_edge_attribute : int32 -> string -> string -> int32;
-      set_edge_style_attribute : int32 -> string -> string -> int32;
-      set_vertex_attribute : int32 -> string -> string -> int32;
-      set_vertex_style_attribute : int32 -> string -> string -> int32
-    >
+    type st = state
 
     let empty s =
-      let _ = s#clear () in
+      let _ = s.u#clear () in
       s, (B.empty ())
 
     let copy s g = s, B.copy g
 
     let add_vertex s g v =
-      let x = s#new_vertex () in
-      let _ = s#set_vertex_attribute x "shape" "sphere" in
-      let _ = s#set_vertex_attribute x "color" "#ffff00" in
+      let x = s.u#new_vertex () in
+      let _ = Printf.printf "ubi vertex id: %s\n" (Int32.to_string x) in
+      let _ = s.u#set_vertex_attribute x "shape" "sphere" in
+      let _ = s.u#set_vertex_attribute x "color" "#ffff00" in
+      let _ = Hashtbl.add s.gtou (B.G.V.label v) x in
       s, B.add_vertex g v
 
-    let add_edge s g v1 v2 = s, B.add_edge g v1 v2
+    let add_edge s g v1 v2 =
+      let uv1 = Hashtbl.find s.gtou (B.G.V.label v1) in
+      let uv2 = Hashtbl.find s.gtou (B.G.V.label v2) in
+      let e = s.u#new_edge uv1 uv2 in
+      s, B.add_edge g v1 v2
+
     let add_edge_e s g e = s, B.add_edge_e g e
   end
 end
@@ -129,13 +152,13 @@ let test () =
   Graph.Pack.Digraph.display_with_gv g
 
 let test2 () =
+  let n = 86 in
   let module GBuilder = Graph.Builder.I(Graph.Pack.Digraph) in
   let module TBuilder = TraceBuilder.Make(GBuilder) in
   let module SBuilder = UbigraphBuilder.Make(TBuilder) in
   let module Gen = Gen.Make(SBuilder) in
-  let c = new Ubigraph.client "http://localhost:20738/RPC2" in
-  let u = c#ubigraph in
-  let b, g = Gen.graph ~vn:26 u in
+  let s = UbigraphBuilder.make_state "http://localhost:20738/RPC2" n in
+  let b, g = Gen.graph ~vn:n s in
   Graph.Pack.Digraph.display_with_gv g
 
 let _ = 
