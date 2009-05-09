@@ -78,6 +78,48 @@ module TraceBuilder = struct
 end
 
 
+module UbigraphBuilder = struct
+  module Make(B : Graph.Builder.INT) = struct
+    module G = B.G
+
+    type st = <
+      change_edge_style : int32 -> int32 -> int32;
+      change_vertex_style : int32 -> int32 -> int32;
+      clear : unit -> int32;
+      new_edge : int32 -> int32 -> int32;
+      new_edge_style : int32 -> int32;
+      new_edge_style_w_id : int32 -> int32 -> int32;
+      new_edge_w_id : int32 -> int32 -> int32 -> int32;
+      new_vertex : unit -> int32;
+      new_vertex_style : int32 -> int32;
+      new_vertex_style_w_id : int32 -> int32 -> int32;
+      new_vertex_w_id : int32 -> int32;
+      remove_edge : int32 -> int32;
+      remove_vertex : int32 -> int32;
+      set_edge_attribute : int32 -> string -> string -> int32;
+      set_edge_style_attribute : int32 -> string -> string -> int32;
+      set_vertex_attribute : int32 -> string -> string -> int32;
+      set_vertex_style_attribute : int32 -> string -> string -> int32
+    >
+
+    let empty s =
+      let _ = s#clear () in
+      s, (B.empty ())
+
+    let copy s g = s, B.copy g
+
+    let add_vertex s g v =
+      let x = s#new_vertex () in
+      let _ = s#set_vertex_attribute x "shape" "sphere" in
+      let _ = s#set_vertex_attribute x "color" "#ffff00" in
+      s, B.add_vertex g v
+
+    let add_edge s g v1 v2 = s, B.add_edge g v1 v2
+    let add_edge_e s g e = s, B.add_edge_e g e
+  end
+end
+
+
 let test () =
   let module GBuilder = Graph.Builder.I(Graph.Pack.Digraph) in
   let module TBuilder = TraceBuilder.Make(GBuilder) in
@@ -86,4 +128,17 @@ let test () =
   let b, g = Gen.graph ~vn:26 0 in
   Graph.Pack.Digraph.display_with_gv g
 
-let _ = test ()
+let test2 () =
+  let module GBuilder = Graph.Builder.I(Graph.Pack.Digraph) in
+  let module TBuilder = TraceBuilder.Make(GBuilder) in
+  let module SBuilder = UbigraphBuilder.Make(TBuilder) in
+  let module Gen = Gen.Make(SBuilder) in
+  let c = new Ubigraph.client "http://localhost:20738/RPC2" in
+  let u = c#ubigraph in
+  let b, g = Gen.graph ~vn:26 u in
+  Graph.Pack.Digraph.display_with_gv g
+
+let _ = 
+  let _ = test () in
+  let _ = test2 () in
+  ()

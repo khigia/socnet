@@ -3,8 +3,15 @@ OUT=socnet.byte
 .PHONY: all
 all: externals $(OUT)
 
-$(OUT) : socnet.ml
-	ocamlfind ocamlc -package ocamlgraph socnet.ml -linkpkg -o $(OUT)
+$(OUT) : socnet.cmo externals/Ubigraph.cmi externals/Ubigraph.cmo
+	ocamlfind ocamlc \
+	  -package ocamlgraph,xmlrpc-light \
+	  externals/Ubigraph.cmo \
+	  socnet.cmo \
+	  -linkpkg -o $(OUT)
+
+socnet.cmo : socnet.ml
+	ocamlfind ocamlc -package ocamlgraph -I ./externals socnet.ml -c
 
 .PHONY: externals
 externals: externals/Ubigraph.cmi externals/Ubigraph.cmo
