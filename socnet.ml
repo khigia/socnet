@@ -2,40 +2,58 @@ let fold_for i0 i1 f =
   let rec loop i v = if i >= i1 then v else loop (i + 1) (f v i) in
   loop i0
 
+module type Builder = sig
+  module G : Graph.Sig.G
+  type st
+  val empty : st -> st * G.t
+  val copy : st -> G.t -> st * G.t
+  val add_vertex : st -> G.t -> G.V.t -> st * G.t
+  val add_edge : st -> G.t -> G.V.t -> G.V.t -> st * G.t
+  val add_edge_e : st -> G.t -> G.E.t -> st * G.t
+end
+
+(* convert Graph.Builder to Builder *)
+module EmptyBuilderMake(B : Graph.Builder.S) = struct
+  module G = B.G
+  type st = int
+  let empty s = 0, (B.empty ())
+  let copy s g = s, B.copy g
+  let add_vertex s g v = s, B.add_vertex g v
+  let add_edge s g v1 v2 = s, B.add_edge g v1 v2
+  let add_edge_e s g e = s, B.add_edge_e g e
+end
+
 
 module Gen = struct
   
-  module Make(B : Graph.Builder.INT) = struct
+  module Make(B : Builder with type G.V.label = int) = struct
 
-    let _propagate_edges g v anchor =
-      let g = B.add_edge g v anchor in 
-      let attach_to target g =
+    let _propagate_edges b g v anchor =
+      let b, g = B.add_edge b g v anchor in 
+      let attach_to target (b,g) =
         if (Random.int 100) >= 50
         then
-          B.add_edge g v target
+          B.add_edge b g v target
         else
-          g
+          b,g
       in
-      B.G.fold_succ attach_to g anchor g
+      B.G.fold_succ attach_to g anchor (b,g)
 
-    let graph ~vn () =
-      let g = B.empty () in
+    let graph ~vn bst =
+      let b, g = B.empty bst in
       let a = Array.init vn B.G.V.create in
-      let g = B.add_vertex g a.(0) in
-      let step g i =
+      let b, g = B.add_vertex b g a.(0) in
+      let step (b, g) i =
         let v = a.(i) in
-        let g = B.add_vertex g v in
+        let b, g = B.add_vertex b g v in
         let anchor = a.(Random.int i) in
-        let g = _propagate_edges g v anchor in
-        g
+        let b, g = _propagate_edges b g v anchor in
+        b, g
       in
-      fold_for 1 vn step g
+      fold_for 1 vn step (b,g)
 
   end
 
-  module P (G : Graph.Sig.P with type V.label = int) = Make(Graph.Builder.P(G))
-
-  module I (G : Graph.Sig.I with type V.label = int) = Make(Graph.Builder.I(G))
 end
 
 
@@ -61,15 +79,11 @@ end
 
 
 let test () =
-  let module Gen = Gen.I(Graph.Pack.Digraph) in
-  let g = Gen.graph ~vn:26 () in
+  let module GBuilder = Graph.Builder.I(Graph.Pack.Digraph) in
+  let module TBuilder = TraceBuilder.Make(GBuilder) in
+  let module SBuilder = EmptyBuilderMake(TBuilder) in
+  let module Gen = Gen.Make(SBuilder) in
+  let b, g = Gen.graph ~vn:26 0 in
   Graph.Pack.Digraph.display_with_gv g
 
-let test2 () =
-  let module RealBuilder = Graph.Builder.I(Graph.Pack.Digraph) in
-  let module WrappedBuilder = TraceBuilder.Make(RealBuilder) in
-  let module Gen = Gen.Make(WrappedBuilder) in
-  let g = Gen.graph ~vn:26 () in
-  Graph.Pack.Digraph.display_with_gv g
-
-let _ = test2 ()
+let _ = test ()
