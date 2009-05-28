@@ -1,0 +1,3 @@
+Generate a random graph.
+
+Use ocamlgraph and xmlrpc-light to render graph through ubigraph.
