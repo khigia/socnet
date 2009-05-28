@@ -174,6 +174,7 @@ let _ =
     let module RGen = Gen.Make(RBuilder) in
     let module UBuilder = UbigraphBuilder.Make(GBuilder) in
     let module UGen = Gen.Make(UBuilder) in
+    let _ = Random.self_init () in
     let g = if !ubi
     then
       let s = UbigraphBuilder.make_state "http://localhost:20738/RPC2" !n in
