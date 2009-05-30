@@ -181,7 +181,8 @@ let _ =
       ignore
       ""
     in
-    let module GBuilder = Graph.Builder.I(Graph.Pack.Digraph) in
+    let module G = Graph.Pack.Digraph in
+    let module GBuilder = Graph.Builder.I(G) in
     let module RBuilder = EmptyBuilderMake(GBuilder) in
     let module RGen = Gen.Make(RBuilder) in
     let module UBuilder = UbigraphBuilder.Make(GBuilder) in
@@ -197,9 +198,34 @@ let _ =
         let b, g = RGen.graph ~fwdp:!fwdp ~bckp:!bckp ~bip:!bip ~vn:!n s in
         g
     in
-    if !gv
-    then
-      Graph.Pack.Digraph.display_with_gv g
-
+    let d = 0.85 in
+    let h = (1. -. d) /. (float_of_int !n) in
+    let pr pr1 pr2 v =
+      let f pred acc =
+        let pred_i = G.V.label pred in
+        let pred_pr = pr1.(pred_i) in
+        let pred_c = float_of_int (G.out_degree g pred) in
+        acc +. (pred_pr /. pred_c)
+      in
+      let influence = G.fold_pred f g v 0.0 in
+      let i = G.V.label v in
+      let p = h +. d *. (influence) in
+      Array.set pr2 i p
+    in
+    let rec iter n p1 p2 =
+      if n > 0
+      then
+        let _ = G.iter_vertex (pr p1 p2) g in
+        iter (n-1) p2 p1
+      else
+        p2
+    in
+    let pr1 = Array.make !n 1.0 in
+    let pr2 = Array.make !n 0.0 in
+    let p = iter 15 pr1 pr2 in
+    let _ = Array.iteri (Printf.printf "%d %f\n") p in
+    let _ = flush_all () in
+    let _ = if !gv then G.display_with_gv g in
+    ()
   with
     exn -> Printf.printf "ERROR:%s\n" (Printexc.to_string exn)
