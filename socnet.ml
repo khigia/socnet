@@ -28,21 +28,21 @@ end
 (* generate random graph by adding node and propagating edges *)
 module Gen = struct
   
+  let fwd_p = 0.25
+  let bck_p = 0.35
+  let bi_p  = 0.40
+
   module IntSet = Set.Make(struct type t = int let compare = compare end)
 
   module Make(B : Builder with type G.V.label = int) = struct
 
-    let fwd_p = 0.25
-    let bck_p = 0.35
-
-    let mean = (1. /. (1. -. fwd_p))
-
-    let rec _propagate_edges seen deg b g v anchor =
+    let rec _propagate_edges fwdp bckp bip seen deg b g v anchor =
       let odeg = B.G.out_degree g anchor in
       let ideg = B.G.in_degree g anchor in
       let deg = odeg + ideg in
+      let mean = (1. /. (1. -. fwdp)) in
       let p = 1000. *. mean /. (float_of_int deg) in
-      let r = bck_p *. p in
+      let r = bckp *. p in
       let ip = int_of_float p in
       let ir = int_of_float r in
       let attach_to prob target (s, b, g) =
@@ -57,8 +57,14 @@ module Gen = struct
             if (Random.int 1000) < prob
             then
               let b, g = B.add_edge b g v target in
+              let b, g = if (Random.float 1.0) < bip
+                then
+                  B.add_edge b g target v
+                else
+                  b, g
+              in
               let s = IntSet.add (B.G.V.label target) s in
-              _propagate_edges s deg b g v target
+              _propagate_edges fwdp bckp bip s deg b g v target
             else
               s, b, g
       in
@@ -66,7 +72,7 @@ module Gen = struct
       let seen, b, g = B.G.fold_pred (attach_to ir) g anchor (seen, b, g) in
       seen, b, g
 
-    let graph ~vn bst =
+    let graph ?(fwdp=fwd_p) ?(bckp=bck_p) ?(bip=bi_p) ~vn bst =
       let b, g = B.empty bst in
       let a = Array.init vn B.G.V.create in
       let b, g = B.add_vertex b g a.(0) in
@@ -76,7 +82,7 @@ module Gen = struct
         let anchor = a.(Random.int i) in
         let b, g = B.add_edge b g v anchor in 
         let seen = IntSet.singleton (B.G.V.label anchor) in
-        let seen, b, g = _propagate_edges seen 0 b g v anchor in
+        let seen, b, g = _propagate_edges fwdp bckp bip seen 0 b g v anchor in
         b, g
       in
       fold_for 1 vn step (b,g)
@@ -160,11 +166,17 @@ let _ =
     let n = ref 12 in
     let gv = ref false in
     let ubi = ref false in
+    let fwdp = ref 0.0 in fwdp := Gen.fwd_p;
+    let bckp = ref 0.0 in bckp := Gen.bck_p;
+    let bip = ref 0.0 in bip := Gen.bi_p;
     let _ = Arg.parse
       [
         ("-n", Arg.Int ((:=) n), "number of nodes");
         ("-gv", Arg.Set gv, "display with gv");
         ("-ubi", Arg.Set ubi, "display with ubigraph (localhost:20738)");
+        ("-fwd", Arg.Set_float fwdp, "forward probability");
+        ("-bck", Arg.Set_float bckp, "backward probability");
+        ("-bi", Arg.Set_float bip, "bidirectional probability");
       ]
       ignore
       ""
@@ -176,14 +188,14 @@ let _ =
     let module UGen = Gen.Make(UBuilder) in
     let _ = Random.self_init () in
     let g = if !ubi
-    then
-      let s = UbigraphBuilder.make_state "http://localhost:20738/RPC2" !n in
-      let b, g = UGen.graph ~vn:!n s in
-      g
-    else
-      let s = 1 in
-      let b, g = RGen.graph ~vn:!n s in
-      g
+      then
+        let s = UbigraphBuilder.make_state "http://localhost:20738/RPC2" !n in
+        let b, g = UGen.graph ~fwdp:!fwdp ~bckp:!bckp ~bip:!bip ~vn:!n s in
+        g
+      else
+        let s = 1 in
+        let b, g = RGen.graph ~fwdp:!fwdp ~bckp:!bckp ~bip:!bip ~vn:!n s in
+        g
     in
     if !gv
     then
