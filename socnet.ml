@@ -92,10 +92,6 @@ module Gen = struct
 end
 
 
-(* builder calling ubigraph through xml rpc: duplicate graph in Graph and Ubigraph.
-simple impl: the graph node do not contains the ubigraph ref but we keep track
-through hashtbl
-*)
 module Ubigraph = struct
   type ubi_t = <
     change_edge_style : int32 -> int32 -> int32;
@@ -117,44 +113,14 @@ module Ubigraph = struct
     set_vertex_style_attribute : int32 -> string -> string -> int32
   >
   
-  module Viewer = struct
-    module Make(G : Graph.Sig.G with type V.label = int)  = struct
+  module Viewer(G : Graph.Sig.G with type V.label = int) = struct
 
-      let view url g p =
-        let c = new Ubigraph.client url in
-        let gtou = Hashtbl.create (G.nb_vertex g) in
-        let u = c#ubigraph in
-        let _ = u#clear () in
-        let add_v v =
-          let i = G.V.label v in
-          let s = p.(i) in
-          let x = u#new_vertex () in
-          let _ = Hashtbl.add gtou i x in
-          let _ = u#set_vertex_attribute x "shape" "sphere" in
-          let _ = u#set_vertex_attribute x "color" "#ffff00" in
-          let _ = u#set_vertex_attribute x "size" (string_of_float (0.5 +. 2. *. s)) in
-          ()
-        in
-        let _ = G.iter_vertex add_v g in
-        let add_e v1 v2 =
-          let x1 = Hashtbl.find gtou (G.V.label v1) in
-          let x2 = Hashtbl.find gtou (G.V.label v2) in
-          let _e = u#new_edge x1 x2 in
-          ()
-        in
-        let _ = G.iter_edges add_e g in
-        ()
-
-    end
-  end
-
-  module Builder = struct
-    type state = {
+    type t = {
       u: ubi_t;
       gtou: (int,Int32.t) Hashtbl.t;
     }
     
-    let make_state url n =
+    let make url n =
       let c = new Ubigraph.client url in
       let u = c#ubigraph in
       {
@@ -162,34 +128,51 @@ module Ubigraph = struct
         gtou = Hashtbl.create n;
       }
 
-
-    module Make(B : Graph.Builder.INT) = struct
-      module G = B.G
-
-      type st = state
-
-      let empty s =
+    let clear s =
         let _ = s.u#clear () in
-        s, (B.empty ())
+        s
 
-      let copy s g = s, B.copy g
+    let add_vertex t v =
+      let x = t.u#new_vertex () in
+      let _ = t.u#set_vertex_attribute x "shape" "sphere" in
+      let _ = t.u#set_vertex_attribute x "color" "#ffff00" in
+      let _ = Hashtbl.add t.gtou (G.V.label v) x in
+      x, t
 
-      let add_vertex s g v =
-        let x = s.u#new_vertex () in
-        let _ = Printf.printf "ubi vertex id: %s\n" (Int32.to_string x) in
-        let _ = s.u#set_vertex_attribute x "shape" "sphere" in
-        let _ = s.u#set_vertex_attribute x "color" "#ffff00" in
-        let _ = Hashtbl.add s.gtou (B.G.V.label v) x in
-        s, B.add_vertex g v
+    let add_edge t v1 v2 =
+      let xv1 = Hashtbl.find t.gtou (G.V.label v1) in
+      let xv2 = Hashtbl.find t.gtou (G.V.label v2) in
+      let e = t.u#new_edge xv1 xv2 in
+      e, t
 
-      let add_edge s g v1 v2 =
-        let uv1 = Hashtbl.find s.gtou (B.G.V.label v1) in
-        let uv2 = Hashtbl.find s.gtou (B.G.V.label v2) in
-        let _e = s.u#new_edge uv1 uv2 in
-        s, B.add_edge g v1 v2
+  end
 
-      let add_edge_e s g e = s, B.add_edge_e g e
-    end
+  module Builder(B : Graph.Builder.INT) = struct
+    
+    module VV = Viewer(B.G)
+
+    module G = B.G
+
+    type st = VV.t
+    
+    let make_state url n =
+      VV.make url n
+
+    let empty s =
+      let s = VV.clear s in
+      s, (B.empty ())
+
+    let copy s g = s, B.copy g
+
+    let add_vertex s g v =
+      let x,s = VV.add_vertex s v in
+      s, B.add_vertex g v
+
+    let add_edge s g v1 v2 =
+      let e,s = VV.add_edge s v1 v2 in
+      s, B.add_edge g v1 v2
+
+    let add_edge_e s g e = s, B.add_edge_e g e
   end
 end
 
@@ -218,17 +201,17 @@ let _ =
     in
     let module G = Graph.Pack.Digraph in
     let module GBuilder = Graph.Builder.I(G) in
-    let module RBuilder = EmptyBuilderMake(GBuilder) in
-    let module RGen = Gen.Make(RBuilder) in
-    let module UBuilder = Ubigraph.Builder.Make(GBuilder) in
-    let module UGen = Gen.Make(UBuilder) in
     let _ = Random.self_init () in
     let g = if !ubibuild
       then
-        let s = Ubigraph.Builder.make_state "http://localhost:20738/RPC2" !n in
+        let module UBuilder = Ubigraph.Builder(GBuilder) in
+        let module UGen = Gen.Make(UBuilder) in
+        let s = UBuilder.make_state "http://localhost:20738/RPC2" !n in
         let b, g = UGen.graph ~fwdp:!fwdp ~bckp:!bckp ~bip:!bip ~vn:!n s in
         g
       else
+        let module RBuilder = EmptyBuilderMake(GBuilder) in
+        let module RGen = Gen.Make(RBuilder) in
         let s = 1 in
         let b, g = RGen.graph ~fwdp:!fwdp ~bckp:!bckp ~bip:!bip ~vn:!n s in
         g
@@ -262,8 +245,25 @@ let _ =
     let _ = flush_all () in
     let _ = if !gv then G.display_with_gv g in
     let _ = if !ubi then
-      let module Viewer = Ubigraph.Viewer.Make(G) in
-      let _ = Viewer.view "http://localhost:20738/RPC2" g p in
+      let module Viewer = Ubigraph.Viewer(G) in
+      let viewer = Viewer.make "http://localhost:20738/RPC2" (G.nb_vertex g) in
+      let view t g p =
+        let t = Viewer.clear t in
+        let add_v v =
+          let s = p.(G.V.label v) in
+          let x,_ = Viewer.add_vertex t v in
+          let _ = t.Viewer.u#set_vertex_attribute x "size" (string_of_float (0.5 +. 2. *. s)) in
+          ()
+        in
+        let _ = G.iter_vertex add_v g in
+        let add_e v1 v2 =
+          let _e,_ = Viewer.add_edge t v1 v2 in
+          ()
+        in
+        let _ = G.iter_edges add_e g in
+        ()
+      in
+      let _ = view viewer g p in
       ()
     in
     ()
