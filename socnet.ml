@@ -177,6 +177,39 @@ module Ubigraph = struct
 end
 
 
+module Pr(G : Graph.Sig.G with type V.label = int) = struct
+
+  let pr g d l =
+    let n = G.nb_vertex g in
+    let h = (1. -. d) /. (float_of_int n) in
+    let _pr pr1 pr2 v =
+      let f pred acc =
+        let pred_i = G.V.label pred in
+        let pred_pr = pr1.(pred_i) in
+        let pred_c = float_of_int (G.out_degree g pred) in
+        acc +. (pred_pr /. pred_c)
+      in
+      let influence = G.fold_pred f g v 0.0 in
+      let p = h +. d *. (influence) in
+      let i = G.V.label v in
+      Array.set pr2 i p
+    in
+    let rec iter c p1 p2 =
+      if c > 0
+      then
+        let _ = G.iter_vertex (_pr p1 p2) g in
+        iter (c-1) p2 p1
+      else
+        p2
+    in
+    let pr1 = Array.make n 1.0 in
+    let pr2 = Array.make n 0.0 in
+    let p = iter l pr1 pr2 in
+    p
+
+end
+
+
 let _ =
   try
     let n = ref 12 in
@@ -201,63 +234,41 @@ let _ =
     in
     let module G = Graph.Pack.Digraph in
     let module GBuilder = Graph.Builder.I(G) in
+    let module RBuilder = EmptyBuilderMake(GBuilder) in
+    let module RGen = Gen.Make(RBuilder) in
+    let module UBuilder = Ubigraph.Builder(GBuilder) in
+    let module UGen = Gen.Make(UBuilder) in
+    let module UViewer = Ubigraph.Viewer(G) in
+    let module Pr = Pr(G) in
     let _ = Random.self_init () in
     let g = if !ubibuild
       then
-        let module UBuilder = Ubigraph.Builder(GBuilder) in
-        let module UGen = Gen.Make(UBuilder) in
         let s = UBuilder.make_state "http://localhost:20738/RPC2" !n in
         let b, g = UGen.graph ~fwdp:!fwdp ~bckp:!bckp ~bip:!bip ~vn:!n s in
         g
       else
-        let module RBuilder = EmptyBuilderMake(GBuilder) in
-        let module RGen = Gen.Make(RBuilder) in
         let s = 1 in
         let b, g = RGen.graph ~fwdp:!fwdp ~bckp:!bckp ~bip:!bip ~vn:!n s in
         g
     in
-    let d = 0.85 in
-    let h = (1. -. d) /. (float_of_int !n) in
-    let pr pr1 pr2 v =
-      let f pred acc =
-        let pred_i = G.V.label pred in
-        let pred_pr = pr1.(pred_i) in
-        let pred_c = float_of_int (G.out_degree g pred) in
-        acc +. (pred_pr /. pred_c)
-      in
-      let influence = G.fold_pred f g v 0.0 in
-      let i = G.V.label v in
-      let p = h +. d *. (influence) in
-      Array.set pr2 i p
-    in
-    let rec iter n p1 p2 =
-      if n > 0
-      then
-        let _ = G.iter_vertex (pr p1 p2) g in
-        iter (n-1) p2 p1
-      else
-        p2
-    in
-    let pr1 = Array.make !n 1.0 in
-    let pr2 = Array.make !n 0.0 in
-    let p = iter 15 pr1 pr2 in
+    let _ = if !gv then G.display_with_gv g in
+    let p = Pr.pr g 0.85 12 in
     let _ = Array.iteri (Printf.printf "%d %f\n") p in
     let _ = flush_all () in
-    let _ = if !gv then G.display_with_gv g in
     let _ = if !ubi then
-      let module Viewer = Ubigraph.Viewer(G) in
-      let viewer = Viewer.make "http://localhost:20738/RPC2" (G.nb_vertex g) in
+      let pmax = Array.fold_left max 0.0 p in
+      let viewer = UViewer.make "http://localhost:20738/RPC2" (G.nb_vertex g) in
       let view t g p =
-        let t = Viewer.clear t in
+        let t = UViewer.clear t in
         let add_v v =
           let s = p.(G.V.label v) in
-          let x,_ = Viewer.add_vertex t v in
-          let _ = t.Viewer.u#set_vertex_attribute x "size" (string_of_float (0.5 +. 2. *. s)) in
+          let x,_ = UViewer.add_vertex t v in
+          let _ = t.UViewer.u#set_vertex_attribute x "size" (string_of_float (0.3 +. 2. *. s /. pmax)) in
           ()
         in
         let _ = G.iter_vertex add_v g in
         let add_e v1 v2 =
-          let _e,_ = Viewer.add_edge t v1 v2 in
+          let _e, _ = UViewer.add_edge t v1 v2 in
           ()
         in
         let _ = G.iter_edges add_e g in
