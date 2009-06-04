@@ -179,7 +179,7 @@ end
 
 module Pr(G : Graph.Sig.G with type V.label = int) = struct
 
-  let pr g d l =
+  let pr g d l = (* graph -> damping-factor -> iteraton-number -> float array *)
     let n = G.nb_vertex g in
     let h = (1. -. d) /. (float_of_int n) in
     let _pr pr1 pr2 v =
